@@ -1,0 +1,36 @@
+.voice-recorder {
+    margin: 15px 0;
+    padding: 15px;
+    background: #f0f4ff;
+    border-radius: 10px;
+    border: 2px dashed #4a90e2;
+}
+.btn-record {
+    background: #6c5ce7;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 25px;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+.btn-record:hover {
+    background: #5a4bd1;
+    transform: scale(1.02);
+}
+#recordStatus {
+    margin-left: 15px;
+    font-style: italic;
+    color: #555;
+}
+.audio-player {
+    background: #2d2d44;
+    padding: 20px;
+    border-radius: 12px;
+    margin: 15px 0;
+}
+.audio-player audio {
+    background: #1a1a2e;
+    border-radius: 30px;
+}
