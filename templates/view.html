@@ -315,6 +315,12 @@
             background: #1a1a2e;
             border-radius: 30px;
         }
+        .viewer-body video {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 8px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+        }
         .viewer-body .viewer-watermark {
             position: absolute;
             inset: 0;
@@ -336,7 +342,10 @@
             margin: 0 40px;
             white-space: nowrap;
         }
-        .viewer-body img, .viewer-body audio { position: relative; z-index: 2; }
+        .viewer-body img, .viewer-body audio, .viewer-body video, .viewer-body iframe, .viewer-body pre {
+            position: relative;
+            z-index: 2;
+        }
         .viewer-body .no-preview {
             color: #9ca3af;
             font-size: 20px;
@@ -534,7 +543,6 @@
         const el = document.getElementById('pwdError');
         el.textContent = '❌ ' + msg;
         el.style.display = 'block';
-        // Shake the input for feedback
         const input = document.getElementById('passwordInput');
         input.style.borderColor = '#fc8181';
         input.focus();
@@ -550,7 +558,7 @@
     }
 
     // ============================================================
-    // UNLOCK — only called when the user clicks Unlock or presses Enter
+    // UNLOCK
     // ============================================================
     function unlockSecret() {
         const pwd = document.getElementById('passwordInput').value;
@@ -560,7 +568,6 @@
         }
         clearPwdError();
 
-        // Hide password prompt, show loading
         document.getElementById('passwordPrompt').style.display = 'none';
         document.getElementById('loading').style.display = 'block';
         document.getElementById('secretContent').style.display = 'none';
@@ -642,7 +649,7 @@
         .then(blob => {
             if (body.contains(loadingDiv)) body.removeChild(loadingDiv);
             const url = URL.createObjectURL(blob);
-            renderViewerContent(url, att.content_type);
+            renderViewerContent(url, att.content_type, att.filename);
             disableAllAttachments();
         })
         .catch(err => {
@@ -658,15 +665,40 @@
         });
     }
 
-    function renderViewerContent(url, contentType) {
+    // ============================================================
+    // RENDER VIEWER CONTENT — now supports ALL file types
+    // ============================================================
+    function renderViewerContent(url, contentType, filename) {
         const body = document.getElementById('viewerBody');
-        if (isImage(contentType)) {
+        const ct = (contentType || '').toLowerCase();
+        const name = (filename || '').toLowerCase();
+        const ext = name.includes('.') ? name.split('.').pop() : '';
+
+        const isImg = ct.startsWith('image/') || ['jpg','jpeg','png','gif','webp','bmp','svg','ico'].includes(ext);
+        const isVid = ct.startsWith('video/') || ['mp4','webm','ogg','mov','m4v','mkv'].includes(ext);
+        const isAud = ct.startsWith('audio/') || ['mp3','wav','ogg','m4a','aac','flac'].includes(ext);
+        const isPdf = ct === 'application/pdf' || ext === 'pdf';
+        const isTxt = ct.startsWith('text/') ||
+                      ['txt','md','csv','log','json','xml','html','htm','js','css','py','c','cpp','java','sql','yml','yaml'].includes(ext);
+        const isOffice = ['doc','docx','xls','xlsx','ppt','pptx','odt','ods','odp'].includes(ext);
+
+        if (isImg) {
             const img = document.createElement('img');
             img.src = url;
             img.draggable = false;
             img.alt = 'Preview';
             body.appendChild(img);
-        } else if (isAudio(contentType)) {
+        } else if (isVid) {
+            const v = document.createElement('video');
+            v.src = url;
+            v.controls = true;
+            v.controlsList = 'nodownload';
+            v.autoplay = true;
+            v.style.maxWidth = '100%';
+            v.style.maxHeight = '100%';
+            v.oncontextmenu = () => false;
+            body.appendChild(v);
+        } else if (isAud) {
             const audio = document.createElement('audio');
             audio.controls = true;
             audio.controlsList = 'nodownload';
@@ -674,10 +706,43 @@
             audio.src = url;
             body.appendChild(audio);
             audio.play().catch(() => {});
+        } else if (isPdf) {
+            const iframe = document.createElement('iframe');
+            iframe.src = url;
+            iframe.style.width = '100%';
+            iframe.style.height = '100%';
+            iframe.style.border = 'none';
+            iframe.style.background = '#fff';
+            iframe.style.position = 'relative';
+            iframe.style.zIndex = '2';
+            body.appendChild(iframe);
+        } else if (isTxt) {
+            fetch(url).then(r => r.text()).then(text => {
+                const pre = document.createElement('pre');
+                pre.textContent = text;
+                pre.style.cssText = 'position:relative;z-index:2;max-width:100%;max-height:100%;overflow:auto;background:#0f1320;color:#e2e8f0;padding:24px;border-radius:10px;font-family:Consolas,monospace;font-size:14px;white-space:pre-wrap;word-break:break-word;text-align:left;';
+                body.appendChild(pre);
+            }).catch(() => {
+                const msg = document.createElement('div');
+                msg.className = 'no-preview';
+                msg.textContent = 'Could not load text file.';
+                body.appendChild(msg);
+            });
+        } else if (isOffice) {
+            const absoluteUrl = new URL(url, window.location.origin).href;
+            const iframe = document.createElement('iframe');
+            iframe.src = 'https://docs.google.com/viewer?url=' + encodeURIComponent(absoluteUrl) + '&embedded=true';
+            iframe.style.width = '100%';
+            iframe.style.height = '100%';
+            iframe.style.border = 'none';
+            iframe.style.background = '#fff';
+            iframe.style.position = 'relative';
+            iframe.style.zIndex = '2';
+            body.appendChild(iframe);
         } else {
             const msg = document.createElement('div');
             msg.className = 'no-preview';
-            msg.innerHTML = '🔒 This file type cannot be previewed.<br><small style="font-size:14px;">Only images and audio can be viewed.</small>';
+            msg.innerHTML = 'This file type cannot be previewed.<br><small style="font-size:14px;">File has been consumed (view counted).</small>';
             body.appendChild(msg);
         }
     }
@@ -686,7 +751,7 @@
         const overlay = document.getElementById('viewerOverlay');
         overlay.classList.remove('show');
         document.body.style.overflow = '';
-        overlay.querySelectorAll('audio').forEach(a => a.pause());
+        overlay.querySelectorAll('audio, video').forEach(m => m.pause());
         const body = document.getElementById('viewerBody');
         const wm = document.getElementById('viewerWatermark');
         body.innerHTML = '';
@@ -694,7 +759,7 @@
     }
 
     // ============================================================
-    // LOAD SECRET (called only after password is submitted)
+    // LOAD SECRET
     // ============================================================
     function loadSecret(password) {
         console.log('🔓 loadSecret called');
@@ -712,7 +777,6 @@
             document.getElementById('loading').style.display = 'none';
 
             if (passwordError) {
-                // Wrong password → show prompt again with error
                 isUnlocked = false;
                 document.getElementById('passwordPrompt').style.display = 'block';
                 showPwdError('Incorrect password. Please try again.');
@@ -819,18 +883,15 @@
     }
 
     // ============================================================
-    // INIT — always show password prompt first (no auto-unlock)
+    // INIT
     // ============================================================
     document.addEventListener('DOMContentLoaded', function() {
         if (hasPassword) {
-            // ALWAYS show the password prompt.
-            // We do NOT auto-unlock from URL hash — the user must type the password.
             document.getElementById('passwordPrompt').style.display = 'block';
             document.getElementById('loading').style.display = 'none';
             document.getElementById('secretContent').style.display = 'none';
             document.getElementById('passwordInput').focus();
         } else {
-            // No password set → load directly
             document.getElementById('passwordPrompt').style.display = 'none';
             usedPassword = '';
             loadSecret('');

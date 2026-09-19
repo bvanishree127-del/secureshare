@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import uuid
 import os
 import sqlite3
+import mimetypes
 from io import BytesIO
 from crypto_utils import encrypt_data, decrypt_data
 
@@ -244,11 +245,11 @@ def decrypt_text_route(secret_id):
 @app.route('/s/<secret_id>/decrypt_file/<int:attachment_id>', methods=['POST'])
 def decrypt_file_route(secret_id, attachment_id):
     """
-    Serves the file as inline content ONLY (no download).
+    Serves the file inline for preview. All file types supported.
 
-    - `?preview=1` → thumbnail preview; does NOT consume a view
-    - default      → full viewer; consumes one view and destroys the
-                     secret once all views are used
+    - `?preview=1` -> thumbnail preview; does NOT consume a view
+    - default      -> full viewer; consumes one view and destroys the
+                      secret once all views are used
     """
     secret = Secret.query.get(secret_id)
     if not secret:
@@ -260,7 +261,6 @@ def decrypt_file_route(secret_id, attachment_id):
         return jsonify({'error': 'Secret has expired'}), 410
 
     # If the secret has already been burned, block ALL requests
-    # (both preview and non-preview)
     if secret.is_burned():
         db.session.delete(secret)
         db.session.commit()
@@ -277,10 +277,18 @@ def decrypt_file_route(secret_id, attachment_id):
     except ValueError:
         return jsonify({'error': 'Incorrect password'}), 401
 
+    # ------------------------------------------------------------
+    # Detect a sensible MIME type based on the filename extension.
+    # Some browsers upload Office/PDF files with a generic
+    # 'application/octet-stream' or a wrong content type, so we
+    # infer from the extension when the stored type is missing.
+    # ------------------------------------------------------------
+    filename = attachment.filename or ''
+    guessed_type, _ = mimetypes.guess_type(filename)
+
     ct = attachment.content_type or ''
-    previewable = ct.startswith('image/') or ct.startswith('audio/')
-    if not previewable:
-        return jsonify({'error': 'This file type cannot be previewed.'}), 403
+    if (not ct) or ct == 'application/octet-stream':
+        ct = guessed_type or 'application/octet-stream'
 
     is_preview = request.args.get('preview', '0') == '1'
 
@@ -291,12 +299,16 @@ def decrypt_file_route(secret_id, attachment_id):
             db.session.delete(secret)
         db.session.commit()
 
-    return send_file(
+    # Force inline rendering (never a download prompt)
+    response = send_file(
         BytesIO(file_data),
         mimetype=ct,
         as_attachment=False,
-        download_name=None
+        download_name=filename or None
     )
+    response.headers['Content-Disposition'] = f'inline; filename="{filename}"'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 # ============================================================
 # ERROR HANDLERS
